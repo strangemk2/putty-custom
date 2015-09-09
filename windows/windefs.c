@@ -9,7 +9,7 @@
 FontSpec *platform_default_fontspec(const char *name)
 {
     if (!strcmp(name, "Font"))
-        return fontspec_new("Courier New", 0, 10, ANSI_CHARSET);
+        return fontspec_new("Terminal", 0, 10, DEFAULT_CHARSET);
     else
         return fontspec_new("", 0, 0, 0);
 }
