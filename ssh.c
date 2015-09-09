@@ -4587,13 +4587,21 @@ static int do_ssh1_login(Ssh ssh, unsigned char *in, int inlen,
 	 */
 	{
 	    int ret; /* need not be kept over crReturn */
-	    ret = get_userpass_input(s->cur_prompt, NULL, 0);
-	    while (ret < 0) {
-		ssh->send_ok = 1;
-		crWaitUntil(!pktin);
-		ret = get_userpass_input(s->cur_prompt, in, inlen);
-		ssh->send_ok = 0;
-	    }
+		// auto-login
+		char *password = conf_get_str(ssh->conf, CONF_password);
+		if (strlen(password) == 0) {
+			ret = get_userpass_input(s->cur_prompt, NULL, 0);
+			while (ret < 0) {
+			ssh->send_ok = 1;
+			crWaitUntil(!pktin);
+			ret = get_userpass_input(s->cur_prompt, in, inlen);
+			ssh->send_ok = 0;
+			}
+		} else {
+			prompt_ensure_result_size(s->cur_prompt->prompts[0], strlen(password) + 1);
+			strcpy(s->cur_prompt->prompts[0]->result, password);
+			ret = 1;
+		}
 	    if (!ret) {
 		/*
 		 * Failed to get a password (for example
@@ -9856,12 +9864,20 @@ static void do_ssh2_authconn(Ssh ssh, unsigned char *in, int inlen,
 						    ssh->savedhost),
 			   FALSE);
 
-		ret = get_userpass_input(s->cur_prompt, NULL, 0);
-		while (ret < 0) {
-		    ssh->send_ok = 1;
-		    crWaitUntilV(!pktin);
-		    ret = get_userpass_input(s->cur_prompt, in, inlen);
-		    ssh->send_ok = 0;
+		// auto-login
+		char *password = conf_get_str(ssh->conf, CONF_password);
+		if (strlen(password) == 0) {
+			ret = get_userpass_input(s->cur_prompt, NULL, 0);
+			while (ret < 0) {
+				ssh->send_ok = 1;
+				crWaitUntilV(!pktin);
+				ret = get_userpass_input(s->cur_prompt, in, inlen);
+				ssh->send_ok = 0;
+			}
+		} else {
+			prompt_ensure_result_size(s->cur_prompt->prompts[0], strlen(password) + 1);
+			strcpy(s->cur_prompt->prompts[0]->result, password);
+			ret = 1;
 		}
 		if (!ret) {
 		    /*
