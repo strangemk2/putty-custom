@@ -360,6 +360,7 @@ static void do_ssh2_authconn(Ssh ssh, unsigned char *in, int inlen,
 			     struct Packet *pktin);
 static void ssh2_channel_check_close(struct ssh_channel *c);
 static void ssh_channel_destroy(struct ssh_channel *c);
+static void ssh2_msg_something_unimplemented(Ssh ssh, struct Packet *pktin);
 
 /*
  * Buffer management constants. There are several of these for
@@ -1742,6 +1743,15 @@ static struct Packet *ssh2_rdpkt(Ssh ssh, unsigned char **data, int *datalen)
 	}
     }
 
+    /*
+     * RFC 4253 doesn't explicitly say that completely empty packets
+     * with no type byte are forbidden, so treat them as deserving
+     * an SSH_MSG_UNIMPLEMENTED.
+     */
+    if (st->pktin->length <= 5) { /* == 5 we hope, but robustness */
+        ssh2_msg_something_unimplemented(ssh, st->pktin);
+        crStop(NULL);
+    }
     /*
      * pktin->body and pktin->length should identify the semantic
      * content of the packet, excluding the initial type byte.
@@ -5417,7 +5427,7 @@ static void ssh1_msg_port_open(Ssh ssh, struct Packet *pktin)
     ssh_pkt_getstring(pktin, &host, &hostsize);
     port = ssh_pkt_getuint32(pktin);
 
-    pf.dhost = dupprintf("%.*s", hostsize, host);
+    pf.dhost = dupprintf("%.*s", hostsize, NULLTOEMPTY(host));
     pf.dport = port;
     pfp = find234(ssh->rportfwds, &pf, NULL);
 
@@ -5900,7 +5910,7 @@ static void ssh1_msg_debug(Ssh ssh, struct Packet *pktin)
     int msglen;
 
     ssh_pkt_getstring(pktin, &msg, &msglen);
-    logeventf(ssh, "Remote debug message: %.*s", msglen, msg);
+    logeventf(ssh, "Remote debug message: %.*s", msglen, NULLTOEMPTY(msg));
 }
 
 static void ssh1_msg_disconnect(Ssh ssh, struct Packet *pktin)
@@ -5910,7 +5920,8 @@ static void ssh1_msg_disconnect(Ssh ssh, struct Packet *pktin)
     int msglen;
 
     ssh_pkt_getstring(pktin, &msg, &msglen);
-    bombout(("Server sent disconnect message:\n\"%.*s\"", msglen, msg));
+    bombout(("Server sent disconnect message:\n\"%.*s\"",
+             msglen, NULLTOEMPTY(msg)));
 }
 
 static void ssh_msg_ignore(Ssh ssh, struct Packet *pktin)
@@ -7958,7 +7969,8 @@ static void ssh2_msg_channel_open_failure(Ssh ssh, struct Packet *pktin)
             reason_code = 0; /* ensure reasons[reason_code] in range */
         ssh_pkt_getstring(pktin, &reason_string, &reason_length);
         logeventf(ssh, "Forwarded connection refused by server: %s [%.*s]",
-                  reasons[reason_code], reason_length, reason_string);
+                  reasons[reason_code], reason_length,
+                  NULLTOEMPTY(reason_string));
 
         pfd_close(c->u.pfd.pf);
     } else if (c->type == CHAN_ZOMBIE) {
@@ -8253,9 +8265,7 @@ static void ssh2_msg_channel_open(Ssh ssh, struct Packet *pktin)
 	char *addrstr;
 
 	ssh_pkt_getstring(pktin, &peeraddr, &peeraddrlen);
-	addrstr = snewn(peeraddrlen+1, char);
-	memcpy(addrstr, peeraddr, peeraddrlen);
-	addrstr[peeraddrlen] = '\0';
+	addrstr = dupprintf("%.*s", peeraddrlen, NULLTOEMPTY(peeraddr));
 	peerport = ssh_pkt_getuint32(pktin);
 
 	logeventf(ssh, "Received X11 connect request from %s:%d",
@@ -8290,13 +8300,14 @@ static void ssh2_msg_channel_open(Ssh ssh, struct Packet *pktin)
 	char *shost;
 	int shostlen;
 	ssh_pkt_getstring(pktin, &shost, &shostlen);/* skip address */
-        pf.shost = dupprintf("%.*s", shostlen, shost);
+        pf.shost = dupprintf("%.*s", shostlen, NULLTOEMPTY(shost));
 	pf.sport = ssh_pkt_getuint32(pktin);
 	ssh_pkt_getstring(pktin, &peeraddr, &peeraddrlen);
 	peerport = ssh_pkt_getuint32(pktin);
 	realpf = find234(ssh->rportfwds, &pf, NULL);
 	logeventf(ssh, "Received remote port %s:%d open request "
-		  "from %s:%d", pf.shost, pf.sport, peeraddr, peerport);
+		  "from %.*s:%d", pf.shost, pf.sport,
+                  peeraddrlen, NULLTOEMPTY(peeraddr), peerport);
         sfree(pf.shost);
 
 	if (realpf == NULL) {
@@ -9156,11 +9167,20 @@ static void do_ssh2_authconn(Ssh ssh, unsigned char *in, int inlen,
 		s->can_keyb_inter = conf_get_int(ssh->conf, CONF_try_ki_auth) &&
 		    in_commasep_string("keyboard-interactive", methods, methlen);
 #ifndef NO_GSSAPI
-		if (!ssh->gsslibs)
-		    ssh->gsslibs = ssh_gss_setup(ssh->conf);
-		s->can_gssapi = conf_get_int(ssh->conf, CONF_try_gssapi_auth) &&
-		    in_commasep_string("gssapi-with-mic", methods, methlen) &&
-		    ssh->gsslibs->nlibraries > 0;
+                if (conf_get_int(ssh->conf, CONF_try_gssapi_auth) &&
+		    in_commasep_string("gssapi-with-mic", methods, methlen)) {
+                    /* Try loading the GSS libraries and see if we
+                     * have any. */
+                    if (!ssh->gsslibs)
+                        ssh->gsslibs = ssh_gss_setup(ssh->conf);
+                    s->can_gssapi = (ssh->gsslibs->nlibraries > 0);
+                } else {
+                    /* No point in even bothering to try to load the
+                     * GSS libraries, if the user configuration and
+                     * server aren't both prepared to attempt GSSAPI
+                     * auth in the first place. */
+                    s->can_gssapi = FALSE;
+                }
 #endif
 	    }
 
@@ -9962,7 +9982,7 @@ static void do_ssh2_authconn(Ssh ssh, unsigned char *in, int inlen,
 		    s->cur_prompt->to_server = TRUE;
 		    s->cur_prompt->name = dupstr("New SSH password");
 		    s->cur_prompt->instruction =
-			dupprintf("%.*s", prompt_len, prompt);
+			dupprintf("%.*s", prompt_len, NULLTOEMPTY(prompt));
 		    s->cur_prompt->instr_reqd = TRUE;
 		    /*
 		     * There's no explicit requirement in the protocol
@@ -10399,13 +10419,13 @@ static void ssh2_msg_disconnect(Ssh ssh, struct Packet *pktin)
     logevent(buf);
     sfree(buf);
     buf = dupprintf("Disconnection message text: %.*s",
-		    msglen, msg);
+		    msglen, NULLTOEMPTY(msg));
     logevent(buf);
     bombout(("Server sent disconnect message\ntype %d (%s):\n\"%.*s\"",
 	     reason,
 	     (reason > 0 && reason < lenof(ssh2_disconnect_reasons)) ?
 	     ssh2_disconnect_reasons[reason] : "unknown",
-	     msglen, msg));
+	     msglen, NULLTOEMPTY(msg)));
     sfree(buf);
 }
 
@@ -10419,7 +10439,7 @@ static void ssh2_msg_debug(Ssh ssh, struct Packet *pktin)
     ssh2_pkt_getbool(pktin);
     ssh_pkt_getstring(pktin, &msg, &msglen);
 
-    logeventf(ssh, "Remote debug message: %.*s", msglen, msg);
+    logeventf(ssh, "Remote debug message: %.*s", msglen, NULLTOEMPTY(msg));
 }
 
 static void ssh2_msg_transport(Ssh ssh, struct Packet *pktin)

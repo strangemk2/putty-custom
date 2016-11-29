@@ -19,6 +19,7 @@
 #include "terminal.h"
 #include "storage.h"
 #include "win_res.h"
+#include "winsecur.h"
 
 #ifndef NO_MULTIMON
 #include <multimon.h>
@@ -74,6 +75,11 @@
 #endif
 #ifndef WHEEL_DELTA
 #define WHEEL_DELTA 120
+#endif
+
+/* VK_PACKET, used to send Unicode characters in WM_KEYDOWNs */
+#ifndef VK_PACKET
+#define VK_PACKET 0xE7
 #endif
 
 static Mouse_Button translate_button(Mouse_Button button);
@@ -349,7 +355,6 @@ static void close_session(void *ignored_context)
 
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 {
-    WNDCLASS wndclass;
     MSG msg;
     HRESULT hr;
     int guess_width, guess_height;
@@ -404,6 +409,21 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	return 1;
     }
 
+    /*
+     * Protect our process
+     */
+    {
+#ifndef UNPROTECT
+        char *error = NULL;
+        if (! setprocessacl(error)) {
+            char *message = dupprintf("Could not restrict process ACL: %s",
+                                      error);
+	    logevent(NULL, message);
+            sfree(message);
+	    sfree(error);
+	}
+#endif
+    }
     /*
      * Process the command line.
      */
@@ -663,6 +683,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     }
 
     if (!prev) {
+        WNDCLASSW wndclass;
+
 	wndclass.style = 0;
 	wndclass.lpfnWndProc = WndProc;
 	wndclass.cbClsExtra = 0;
@@ -672,9 +694,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	wndclass.hCursor = LoadCursor(NULL, IDC_IBEAM);
 	wndclass.hbrBackground = NULL;
 	wndclass.lpszMenuName = NULL;
-	wndclass.lpszClassName = appname;
+	wndclass.lpszClassName = dup_mb_to_wc(DEFAULT_CODEPAGE, 0, appname);
 
-	RegisterClass(&wndclass);
+	RegisterClassW(&wndclass);
     }
 
     memset(&ucsdata, 0, sizeof(ucsdata));
@@ -708,6 +730,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     {
 	int winmode = WS_OVERLAPPEDWINDOW | WS_VSCROLL;
 	int exwinmode = 0;
+        wchar_t *uappname = dup_mb_to_wc(DEFAULT_CODEPAGE, 0, appname);
 	if (!conf_get_int(conf, CONF_scrollbar))
 	    winmode &= ~(WS_VSCROLL);
 	if (conf_get_int(conf, CONF_resize_action) == RESIZE_DISABLED)
@@ -716,10 +739,11 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	    exwinmode |= WS_EX_TOPMOST;
 	if (conf_get_int(conf, CONF_sunken_edge))
 	    exwinmode |= WS_EX_CLIENTEDGE;
-	hwnd = CreateWindowEx(exwinmode, appname, appname,
-			      winmode, CW_USEDEFAULT, CW_USEDEFAULT,
-			      guess_width, guess_height,
-			      NULL, NULL, inst, NULL);
+	hwnd = CreateWindowExW(exwinmode, uappname, uappname,
+                               winmode, CW_USEDEFAULT, CW_USEDEFAULT,
+                               guess_width, guess_height,
+                               NULL, NULL, inst, NULL);
+        sfree(uappname);
     }
 
     /*
@@ -906,12 +930,12 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	} else
 	    sfree(handles);
 
-	while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE)) {
+	while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
 	    if (msg.message == WM_QUIT)
 		goto finished;	       /* two-level break */
 
 	    if (!(IsWindow(logbox) && IsDialogMessage(logbox, &msg)))
-		DispatchMessage(&msg);
+		DispatchMessageW(&msg);
 
             /*
              * WM_NETEVENT messages seem to jump ahead of others in
@@ -3104,7 +3128,8 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 	    unsigned char buf[20];
 	    int len;
 
-	    if (wParam == VK_PROCESSKEY) { /* IME PROCESS key */
+	    if (wParam == VK_PROCESSKEY || /* IME PROCESS key */
+                wParam == VK_PACKET) {     /* 'this key is a Unicode char' */
 		if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) {
 		    MSG m;
 		    m.hwnd = hwnd;
@@ -3116,7 +3141,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 	    } else {
 		len = TranslateKey(message, wParam, lParam, buf);
 		if (len == -1)
-		    return DefWindowProc(hwnd, message, wParam, lParam);
+		    return DefWindowProcW(hwnd, message, wParam, lParam);
 
 		if (len != 0) {
 		    /*
@@ -3220,10 +3245,21 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 	 * we're ready to cope.
 	 */
 	{
-	    char c = (unsigned char)wParam;
-	    term_seen_key_event(term);
-	    if (ldisc)
-		lpage_send(ldisc, CP_ACP, &c, 1, 1);
+            static wchar_t pending_surrogate = 0;
+	    wchar_t c = wParam;
+
+            if (IS_HIGH_SURROGATE(c)) {
+                pending_surrogate = c;
+            } else if (IS_SURROGATE_PAIR(pending_surrogate, c)) {
+                wchar_t pair[2];
+                pair[0] = pending_surrogate;
+                pair[1] = c;
+                term_seen_key_event(term);
+                luni_send(ldisc, pair, 2, 1);
+            } else if (!IS_SURROGATE(c)) {
+                term_seen_key_event(term);
+                luni_send(ldisc, &c, 1, 1);
+            }
 	}
 	return 0;
       case WM_SYSCOLORCHANGE:
@@ -3308,7 +3344,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
      * Any messages we don't process completely above are passed through to
      * DefWindowProc() for default processing.
      */
-    return DefWindowProc(hwnd, message, wParam, lParam);
+    return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
 /*
