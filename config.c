@@ -513,17 +513,12 @@ static void codepage_handler(union control *ctrl, void *dlg,
 	dlg_listbox_clear(ctrl, dlg);
 	for (i = 0; (cp = cp_enumerate(i)) != NULL; i++)
 	    dlg_listbox_add(ctrl, dlg, cp);
-	if (decode_codepage (conf_get_str (conf, CONF_line_codepage)) == CP_UTF8 && !iso2022_init_test (conf_get_str (conf, CONF_line_codepage))) {
-	dlg_editbox_set(ctrl, dlg, conf_get_str (conf, CONF_line_codepage));
-	} else {
 	dlg_editbox_set(ctrl, dlg, thiscp);
 	conf_set_str(conf, CONF_line_codepage, thiscp);
-	}
 	dlg_update_done(ctrl, dlg);
     } else if (event == EVENT_VALCHANGE) {
 	char *codepage = dlg_editbox_get(ctrl, dlg);
 	conf_set_str(conf, CONF_line_codepage,
-		     (decode_codepage (codepage) == CP_UTF8 && !iso2022_init_test (codepage)) ? codepage :
 		     cp_name(decode_codepage(codepage)));
 	sfree(codepage);
     }
@@ -1479,7 +1474,7 @@ void setup_config_box(struct controlbox *b, int midsession,
 		 HELPCTX(logging_filename),
 		 conf_filesel_handler, I(CONF_logfilename));
     ctrl_text(s, "(Log file name can contain &Y, &M, &D for date,"
-	      " &T for time, and &H for host name)",
+	      " &T for time, &H for host name, and &P for port number)",
 	      HELPCTX(logging_filename));
     ctrl_radiobuttons(s, "What to do if the log file already exists:", 'e', 1,
 		      HELPCTX(logging_exists),

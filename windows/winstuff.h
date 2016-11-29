@@ -552,29 +552,4 @@ int remove_from_jumplist_registry(const char *item);
  * empty one. */
 char *get_jumplist_registry_entries(void);
 
-/*
- * Exports from iso2022.c
- */
-int xMultiByteToWideChar(UINT, DWORD, LPCSTR, int, LPWSTR, int);
-int xWideCharToMultiByte(UINT, DWORD, LPCWSTR, int, LPSTR, int,
-                         LPCSTR, LPBOOL);
-#define MultiByteToWideChar xMultiByteToWideChar
-#define WideCharToMultiByte xWideCharToMultiByte
-
-/*
- * Exports from l10n.c
- */
-int xMessageBoxA(HWND, LPCSTR, LPCSTR, UINT);
-HWND xCreateWindowExA(DWORD, LPCSTR, LPCSTR, DWORD, int, int,
-                      int, int, HWND, HMENU, HINSTANCE, LPVOID);
-int xDialogBoxParamA(HINSTANCE, LPCSTR, HWND, DLGPROC, LPARAM);
-HWND xCreateDialogParamA(HINSTANCE, LPCSTR, HWND, DLGPROC, LPARAM);
-#define MessageBoxA xMessageBoxA
-#define CreateWindowExA xCreateWindowExA
-#define DialogBoxParamA xDialogBoxParamA
-#define CreateDialogParamA xCreateDialogParamA
-void l10n (HINSTANCE);
-HFONT l10n_getfont (HFONT);
-void l10n_created_window (HWND);
-
 #endif

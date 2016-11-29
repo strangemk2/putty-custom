@@ -139,9 +139,9 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, int has_help,
 		c->radio.buttons =
 		    sresize(c->radio.buttons, c->radio.nbuttons, char *);
 		c->radio.buttons[c->radio.nbuttons-1] =
-		    l10n_dupstr("Play a custom sound file");
+		    dupstr("Play a custom sound file");
 		c->radio.buttons[c->radio.nbuttons-2] =
-		    l10n_dupstr("Beep using the PC speaker");
+		    dupstr("Beep using the PC speaker");
 		c->radio.buttondata =
 		    sresize(c->radio.buttondata, c->radio.nbuttons, intorptr);
 		c->radio.buttondata[c->radio.nbuttons-1] = I(BELL_WAVEFILE);
@@ -238,11 +238,11 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, int has_help,
 		c->radio.buttons =
 		    sresize(c->radio.buttons, c->radio.nbuttons, char *);
 		c->radio.buttons[c->radio.nbuttons-3] =
-		    l10n_dupstr("Font has XWindows encoding");
+		    dupstr("Font has XWindows encoding");
 		c->radio.buttons[c->radio.nbuttons-2] =
-		    l10n_dupstr("Use font in both ANSI and OEM modes");
+		    dupstr("Use font in both ANSI and OEM modes");
 		c->radio.buttons[c->radio.nbuttons-1] =
-		    l10n_dupstr("Use font in OEM mode only");
+		    dupstr("Use font in OEM mode only");
 		c->radio.buttondata =
 		    sresize(c->radio.buttondata, c->radio.nbuttons, intorptr);
 		c->radio.buttondata[c->radio.nbuttons-3] = I(VT_XWINDOWS);
@@ -362,7 +362,7 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, int has_help,
 		c->radio.buttons =
 		    sresize(c->radio.buttons, c->radio.nbuttons, char *);
 		c->radio.buttons[c->radio.nbuttons-1] =
-		    l10n_dupstr("Local");
+		    dupstr("Local");
 		c->radio.buttondata =
 		    sresize(c->radio.buttondata, c->radio.nbuttons, intorptr);
 		c->radio.buttondata[c->radio.nbuttons-1] = I(PROXY_CMD);
@@ -376,7 +376,7 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, int has_help,
 		c->generic.context.i == CONF_proxy_telnet_command) {
 		assert(c->generic.handler == conf_editbox_handler);
 		sfree(c->generic.label);
-		c->generic.label = l10n_dupstr("Telnet command, or local"
+		c->generic.label = dupstr("Telnet command, or local"
 					  " proxy command");
 		break;
 	    }

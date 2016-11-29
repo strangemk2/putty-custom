@@ -1,4 +1,3 @@
-
 /*
  * winctrls.c: routines to self-manage the controls in a dialog
  * box.
@@ -28,23 +27,23 @@
 #define GAPXBOX 7
 #define GAPYBOX 4
 #define DLGWIDTH 168
-#define STATICHEIGHT (8+1)
-#define TITLEHEIGHT (12+1)
-#define CHECKBOXHEIGHT (8+1)
-#define RADIOHEIGHT (8+1)
-#define EDITHEIGHT (12+1)
-#define LISTHEIGHT (11+1)
+#define STATICHEIGHT 8
+#define TITLEHEIGHT 12
+#define CHECKBOXHEIGHT 8
+#define RADIOHEIGHT 8
+#define EDITHEIGHT 12
+#define LISTHEIGHT 11
 #define LISTINCREMENT 8
-#define COMBOHEIGHT (12+1)
-#define PUSHBTNHEIGHT (14+1)
-#define PROGBARHEIGHT (14+1)
+#define COMBOHEIGHT 12
+#define PUSHBTNHEIGHT 14
+#define PROGBARHEIGHT 14
 
 void ctlposinit(struct ctlpos *cp, HWND hwnd,
 		int leftborder, int rightborder, int topborder)
 {
     RECT r, r2;
     cp->hwnd = hwnd;
-    cp->font = l10n_getfont (SendMessage(hwnd, WM_GETFONT, 0, 0));
+    cp->font = SendMessage(hwnd, WM_GETFONT, 0, 0);
     cp->ypos = topborder;
     GetClientRect(hwnd, &r);
     r2.left = r2.top = 0;
@@ -193,7 +192,7 @@ void combobox(struct ctlpos *cp, char *text, int staticid, int listid)
     r.top = cp->ypos;
     r.bottom = COMBOHEIGHT * 10;
     doctl(cp, r, "COMBOBOX",
-	  WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_AUTOHSCROLL |
+	  WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL |
 	  CBS_DROPDOWN | CBS_HASSTRINGS, WS_EX_CLIENTEDGE, "", listid);
     cp->ypos += COMBOHEIGHT + GAPBETWEEN;
 }
@@ -1169,8 +1168,6 @@ static char *shortcut_escape(const char *text, char shortcut)
     char *ret;
     char const *p;
     char *q;
-    char *r, lastchar = '\0';
-    int search;
 
     if (!text)
 	return NULL;		       /* sfree won't choke on this */
@@ -1179,39 +1176,16 @@ static char *shortcut_escape(const char *text, char shortcut)
     shortcut = tolower((unsigned char)shortcut);
 
     p = text;
-    search = 1;
-    while (*p) {
-	 r = CharNext (p);
-	 if (r - p > 1) {
-	      search = 0;
-	      break;
-	 }
-	 p = r;
-    }
-    p = text;
     q = ret;
     while (*p) {
-	if (search && shortcut != NO_SHORTCUT &&
+	if (shortcut != NO_SHORTCUT &&
 	    tolower((unsigned char)*p) == shortcut) {
 	    *q++ = '&';
 	    shortcut = NO_SHORTCUT;    /* stop it happening twice */
 	} else if (*p == '&') {
 	    *q++ = '&';
 	}
-	lastchar = *p;
-	r = CharNext (p);
-	while (p != r)
-	     *q++ = *p++;
-    }
-    if (shortcut != NO_SHORTCUT) { /* Japanese style shortcut */
-	 if (lastchar == ':')
-	      q--;
-	 *q++ = '(';
-	 *q++ = '&';
-	 *q++ = toupper(shortcut);
-	 *q++ = ')';
-	 if (lastchar == ':')
-	      *q++ = lastchar;
+	*q++ = *p++;
     }
     *q = '\0';
     return ret;
@@ -1655,14 +1629,8 @@ void winctrl_layout(struct dlgparam *dp, struct winctrls *wc,
 	    escaped = shortcut_escape(ctrl->fileselect.label,
 				      ctrl->fileselect.shortcut);
 	    shortcuts[nshortcuts++] = ctrl->fileselect.shortcut;
-	    {
-	      char *browse;
-
-	      browse = l10n_dupstr ("Bro&wse...");
 	    editbutton(&pos, escaped, base_id, base_id+1,
-		       browse, base_id+2);
-	      sfree (browse);
-	    }
+		       "Bro&wse...", base_id+2);
 	    shortcuts[nshortcuts++] = 'w';
 	    sfree(escaped);
 	    break;
@@ -1672,13 +1640,7 @@ void winctrl_layout(struct dlgparam *dp, struct winctrls *wc,
 				      ctrl->fontselect.shortcut);
 	    shortcuts[nshortcuts++] = ctrl->fontselect.shortcut;
 	    statictext(&pos, escaped, 1, base_id);
-	    {
-	      char *change;
-
-	      change = l10n_dupstr ("Change...");
-	    staticbtn(&pos, "", base_id+1, change, base_id+2);
-	      sfree (change);
-	    }
+	    staticbtn(&pos, "", base_id+1, "Change...", base_id+2);
             data = fontspec_new("", 0, 0, 0);
 	    sfree(escaped);
 	    break;
@@ -2278,13 +2240,12 @@ void dlg_text_set(union control *ctrl, void *dlg, char const *text)
     SetDlgItemText(dp->hwnd, c->base_id, text);
 }
 
-void dlg_label_change(union control *ctrl, void *dlg, char const *text2)
+void dlg_label_change(union control *ctrl, void *dlg, char const *text)
 {
     struct dlgparam *dp = (struct dlgparam *)dlg;
     struct winctrl *c = dlg_findbyctrl(dp, ctrl);
     char *escaped = NULL;
     int id = -1;
-    char *text = l10n_dupstr (text2);
 
     assert(c);
     switch (c->ctrl->generic.type) {
@@ -2324,7 +2285,6 @@ void dlg_label_change(union control *ctrl, void *dlg, char const *text2)
 	SetDlgItemText(dp->hwnd, id, escaped);
 	sfree(escaped);
     }
-    sfree (text);
 }
 
 void dlg_filesel_set(union control *ctrl, void *dlg, Filename *fn)
