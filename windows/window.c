@@ -224,6 +224,23 @@ static UINT wm_mousewheel = WM_MOUSEWHEEL;
 const int share_can_be_downstream = TRUE;
 const int share_can_be_upstream = TRUE;
 
+static void ExtTextOutW2 (int, HDC, int, int, UINT, const RECT *, WCHAR *,
+			  UINT, const int *);
+
+static void
+ExtTextOutW2wide (HDC a1, int a2, int a3, UINT a4, const RECT *a5, WCHAR *a6,
+		  UINT a7, const int *a8)
+{
+  ExtTextOutW2 (1, a1, a2, a3, a4, a5, a6, a7, a8);
+}
+
+static void
+ExtTextOutW2narrow (HDC a1, int a2, int a3, UINT a4, const RECT *a5, WCHAR *a6,
+		    UINT a7, const int *a8)
+{
+  ExtTextOutW2 (0, a1, a2, a3, a4, a5, a6, a7, a8);
+}
+
 /* Dummy routine, only required in plink. */
 void ldisc_update(void *frontend, int echo, int edit)
 {
@@ -349,6 +366,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     sk_init();
 
     InitCommonControls();
+    l10n (hinst);
 
     /* Ensure a Maximize setting in Explorer doesn't maximise the
      * config box. */
@@ -1357,7 +1375,10 @@ static void exact_textout(HDC hdc, int x, int y, CONST RECT *lprc,
  */
 static void general_textout(HDC hdc, int x, int y, CONST RECT *lprc,
 			    unsigned short *lpString, UINT cbCount,
-			    CONST INT *lpDx, int opaque)
+			    CONST INT *lpDx, int opaque,
+			    void (*ExtTextOutW) (HDC, int, int, UINT,
+						 const RECT *, WCHAR *, UINT,
+						 const int *))
 {
     int i, j, xp, xn;
     int bkmode = 0, got_bkmode = FALSE;
@@ -3109,10 +3130,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 
 	    if (wParam == VK_PROCESSKEY || /* IME PROCESS key */
                 wParam == VK_PACKET) {     /* 'this key is a Unicode char' */
-		if (message == WM_KEYDOWN) {
+		if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) {
 		    MSG m;
 		    m.hwnd = hwnd;
-		    m.message = WM_KEYDOWN;
+		    m.message = message;
 		    m.wParam = wParam;
 		    m.lParam = lParam & 0xdfff;
 		    TranslateMessage(&m);
@@ -3655,14 +3676,14 @@ void do_text_internal(Context ctx, int x, int y, wchar_t *text, int len,
             if (nlen <= 0)
                 return;		       /* Eeek! */
 
-            ExtTextOutW(hdc, x + xoffset,
+            ExtTextOutW2(!!(attr & ATTR_WIDE), hdc, x + xoffset,
                         y - font_height * (lattr == LATTR_BOT) + text_adjust,
                         ETO_CLIPPED | (opaque ? ETO_OPAQUE : 0),
                         &line_box, uni_buf, nlen,
                         lpDx_maybe);
             if (bold_font_mode == BOLD_SHADOW && (attr & ATTR_BOLD)) {
                 SetBkMode(hdc, TRANSPARENT);
-                ExtTextOutW(hdc, x + xoffset - 1,
+                ExtTextOutW2(!!(attr & ATTR_WIDE), hdc, x + xoffset - 1,
                             y - font_height * (lattr ==
                                                LATTR_BOT) + text_adjust,
                             ETO_CLIPPED, &line_box, uni_buf, nlen, lpDx_maybe);
@@ -3721,12 +3742,14 @@ void do_text_internal(Context ctx, int x, int y, wchar_t *text, int len,
             general_textout(hdc, x + xoffset,
                             y - font_height * (lattr==LATTR_BOT) + text_adjust,
                             &line_box, wbuf, len, lpDx,
-                            opaque && !(attr & TATTR_COMBINING));
+                            opaque && !(attr & TATTR_COMBINING),
+                            (attr & ATTR_WIDE) ? ExtTextOutW2wide
+                            : ExtTextOutW2narrow);
 
             /* And the shadow bold hack. */
             if (bold_font_mode == BOLD_SHADOW && (attr & ATTR_BOLD)) {
                 SetBkMode(hdc, TRANSPARENT);
-                ExtTextOutW(hdc, x + xoffset - 1,
+                ExtTextOutW2(!!(attr & ATTR_WIDE), hdc, x + xoffset - 1,
                             y - font_height * (lattr ==
                                                LATTR_BOT) + text_adjust,
                             ETO_CLIPPED, &line_box, wbuf, len, lpDx_maybe);
@@ -5841,4 +5864,124 @@ void agent_schedule_callback(void (*callback)(void *, void *, int),
     c->data = data;
     c->len = len;
     PostMessage(hwnd, WM_AGENT_CALLBACK, 0, (LPARAM)c);
+}
+
+/* (opt & ETO_CLIPPED) must not be zero. */
+static void
+ExtTextOutW2 (int wide, HDC hdc, int x, int y, UINT opt, const RECT *rc,
+	      WCHAR *str, UINT cnt, const int *dx)
+{
+  unsigned int i;
+  SIZE s;
+  RECT rc2;
+  int f;
+  int w95;
+  LONG cx2;
+  extern int iso2022_win95flag;
+
+  if (!dx)
+    {
+      ExtTextOutW (hdc, x, y, opt, rc, str, cnt, dx);
+      return;
+    }
+  f = 0;
+  rc2 = *rc;
+  w95 = wide ? iso2022_win95flag : 0;
+  while (cnt)
+    {
+      cx2 = 0;
+      for (i = 0 ; i < cnt ; i++)
+	{
+	  GetTextExtentPoint32W (hdc, &str[i], 1, &s);
+	  if ((s.cx > *dx ||
+	       s.cx * 4 < *dx * 3) != f)
+	    break;
+	  if (f && cx2 != s.cx)
+	    {
+	      if (i)
+		break;
+	      cx2 = s.cx;
+	    }
+	  if ((w95 && !f) || (0x590 <= str[i] && str[i] <= 0x5ff))
+	    {
+	      i++;
+	      break;
+	    }
+	}
+      if (i)
+	{
+	  cnt -= i;
+	  rc2.right = cnt ? rc2.left + *dx * i : rc->right;
+	  if (f)
+	    {
+	      HDC dc;
+	      HBITMAP bm, oldbm;
+	      RECT rc3;
+
+	      GetTextExtentPoint32W (hdc, str, i, &s);
+	      rc3.left = rc3.top = 0;
+	      rc3.right = s.cx;
+	      rc3.bottom = s.cy;
+	      dc = CreateCompatibleDC (hdc);
+	      bm = CreateBitmap (max (s.cx, *dx * i),
+				 s.cy, 1, 1, 0);
+	      oldbm = SelectObject (dc, bm);
+	      SelectObject (dc, GetCurrentObject (hdc, OBJ_FONT));
+	      SetTextAlign (dc, TA_TOP | TA_LEFT | TA_NOUPDATECP);
+	      SetBkColor (dc, RGB (255, 255, 255));
+	      SetTextColor (dc, RGB (0, 0, 0));
+	      SetBkMode (dc, OPAQUE);
+	      ExtTextOutW (dc, 0, 0, ETO_OPAQUE, &rc3, str, i, 0);
+	      SetStretchBltMode (dc, BLACKONWHITE);
+	      StretchBlt (dc, 0, 0, *dx * i, s.cy,
+			  dc, 0, 0, s.cx, s.cy, SRCCOPY);
+	      {
+		HDC dc2;
+		HBITMAP bm2, oldbm2;
+
+		dc2 = CreateCompatibleDC (hdc);
+		bm2 = CreateCompatibleBitmap (hdc,
+					      rc2.right - rc2.left,
+					      rc2.bottom - rc2.top);
+		oldbm2 = SelectObject (dc2, bm2);
+		if (opt & ETO_OPAQUE)
+		  {
+		    RECT a;
+
+		    SetRect (&a, 0, 0, rc2.right - rc2.left,
+			     rc2.bottom - rc2.top);
+		    SetBkColor (dc2, GetBkColor (hdc));
+		    ExtTextOut (dc2, 0, 0, ETO_OPAQUE, &a, "", 0, 0);
+		  }
+		else
+		  BitBlt (dc2, 0, 0, rc2.right - rc2.left,
+			  rc2.bottom - rc2.top, hdc, rc2.left, rc2.top,
+			  SRCCOPY);
+		SetTextColor (dc2, RGB (0, 0, 0));
+		SetBkColor (dc2, RGB (255, 255, 255));
+		BitBlt (dc2, x - rc2.left, y - rc2.top, *dx * i,
+			s.cy, dc, 0, 0, SRCAND);
+		SetBkColor (dc2, RGB (0, 0, 0));
+		SetTextColor (dc2, GetTextColor (hdc));
+		BitBlt (dc2, x - rc2.left, y - rc2.top, *dx * i,
+			s.cy, dc, 0, 0, SRCPAINT);
+		BitBlt (hdc, rc2.left, rc2.top, rc2.right - rc2.left,
+			rc2.bottom - rc2.top, dc2, 0, 0,
+			SRCCOPY);
+		SelectObject (dc2, oldbm2);
+		DeleteDC (dc2);
+		DeleteObject (bm2);
+	      }
+	      SelectObject(dc, oldbm);
+	      DeleteDC(dc);
+	      DeleteObject(bm);
+	    }
+	  else
+	    ExtTextOutW (hdc, x, y, opt, &rc2, str, i, dx);
+	  x += *dx * i;
+	  str += i;
+	  rc2.left = rc2.right;
+	}
+      f = !f;
+    }
 }

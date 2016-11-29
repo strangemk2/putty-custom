@@ -939,7 +939,8 @@ void load_open_settings(void *sesskey, Conf *conf)
      * The empty default for LineCodePage will be converted later
      * into a plausible default for the locale.
      */
-    gpps(sesskey, "LineCodePage", "", conf, CONF_line_codepage);
+    gpps(sesskey, "LineCodePage", "EUC-JP", conf, CONF_line_codepage);
+    /* No compatibility with the old iso2022 patch */
     gppi(sesskey, "CJKAmbigWide", 0, conf, CONF_cjk_ambig_wide);
     gppi(sesskey, "UTF8Override", 1, conf, CONF_utf8_override);
     gpps(sesskey, "Printer", "", conf, CONF_printer);
